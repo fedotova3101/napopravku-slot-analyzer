@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: napopravku-slot-analyzer
+    runtime: docker
+    plan: free
+    healthCheckPath: /
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PLAYWRIGHT_HEADLESS
+        value: "true"
