@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Анализ свободных слотов НаПоправку</title>
+    <link rel="stylesheet" href="/style.css">
+  </head>
+  <body>
+    <main class="layout">
+      <section class="workspace">
+        <div class="topline">
+          <div>
+            <h1>Анализ свободных слотов врачей</h1>
+            <p>Вставьте ссылку на страницу врачей, клиники или специальности. Инструмент в фоне подгрузит список и покажет врачей, у которых больше 3 слотов на сегодня или завтра.</p>
+            <div class="version-note">Версия: фоновый Playwright-анализ, порт 4355</div>
+          </div>
+          <div class="status-pill" id="statusPill">Готово</div>
+        </div>
+
+        <form class="search-panel" id="analyzeForm">
+          <label for="urlInput">Ссылка на страницу НаПоправку</label>
+          <div class="input-row">
+            <input id="urlInput" name="url" type="url" value="https://napopravku.ru/kirov/clinics/sovermed/vrachi/#doctors" placeholder="https://napopravku.ru/kirov/doctors/stomatolog-terapevt/" required>
+            <button type="submit" id="analyzeButton">Анализировать</button>
+          </div>
+        </form>
+
+        <div class="notice" id="notice" hidden></div>
+
+        <section class="summary" id="summary" hidden>
+          <div>
+            <span class="summary-label">Загружено врачей</span>
+            <strong id="loadedDoctors">0</strong>
+          </div>
+          <div>
+            <span class="summary-label">Всего на странице</span>
+            <strong id="totalDoctors">0</strong>
+          </div>
+          <div>
+            <span class="summary-label">Сегодня > 3</span>
+            <strong id="todayCount">0</strong>
+          </div>
+          <div>
+            <span class="summary-label">Завтра > 3</span>
+            <strong id="tomorrowCount">0</strong>
+          </div>
+        </section>
+
+        <section class="results-grid" id="results" hidden>
+          <article class="result-block">
+            <header>
+              <h2 id="todayTitle">Сегодня</h2>
+              <button class="secondary" type="button" data-copy="today">Скопировать список</button>
+            </header>
+            <div class="doctor-list" id="todayList"></div>
+          </article>
+          <article class="result-block">
+            <header>
+              <h2 id="tomorrowTitle">Завтра</h2>
+              <button class="secondary" type="button" data-copy="tomorrow">Скопировать список</button>
+            </header>
+            <div class="doctor-list" id="tomorrowList"></div>
+          </article>
+        </section>
+
+        <section class="result-block all-block" id="allBlock" hidden>
+          <header>
+            <h2>Все найденные врачи со слотами</h2>
+            <button class="secondary" type="button" data-copy="all">Скопировать все</button>
+          </header>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Врач</th>
+                  <th>Сегодня</th>
+                  <th>Завтра</th>
+                  <th>Клиника</th>
+                </tr>
+              </thead>
+              <tbody id="allRows"></tbody>
+            </table>
+          </div>
+        </section>
+      </section>
+    </main>
+
+    <script src="/app.js"></script>
+  </body>
+</html>
