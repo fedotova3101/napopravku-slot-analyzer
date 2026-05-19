@@ -9,6 +9,7 @@ const HOST = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const ROOT = process.cwd();
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
+const jobs = new Map();
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -24,6 +25,35 @@ function sendJson(res, status, data) {
     "content-length": Buffer.byteLength(body)
   });
   res.end(body);
+}
+
+function createJob(url) {
+  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const job = {
+    id,
+    status: "running",
+    createdAt: Date.now(),
+    data: null,
+    error: null
+  };
+  jobs.set(id, job);
+  navigateAndAnalyze(url)
+    .then(data => {
+      job.status = data.ok ? "done" : "failed";
+      job.data = data;
+    })
+    .catch(error => {
+      job.status = "failed";
+      job.error = error.message || "Не удалось провести анализ.";
+    });
+  return job;
+}
+
+function cleanupJobs() {
+  const cutoff = Date.now() - 60 * 60 * 1000;
+  for (const [id, job] of jobs) {
+    if (job.createdAt < cutoff) jobs.delete(id);
+  }
 }
 
 function readBody(req) {
@@ -69,22 +99,6 @@ function normalizeNapopravkuUrl(value) {
     return null;
   } catch {
     return null;
-  }
-}
-
-async function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function fetchJson(url, timeoutMs = 3000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
   }
 }
 
@@ -321,14 +335,35 @@ async function serveStatic(req, res) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "POST" && req.url === "/api/analyze") {
+      cleanupJobs();
       const payload = JSON.parse(await readBody(req) || "{}");
       const url = normalizeNapopravkuUrl(String(payload.url || "").trim());
       if (!url) {
         sendJson(res, 400, { ok: false, message: "Вставьте ссылку на страницу клиники, врачей или специальности на napopravku.ru." });
         return;
       }
-      const data = await navigateAndAnalyze(url);
-      sendJson(res, data.ok ? 200 : 409, data);
+      const job = createJob(url);
+      sendJson(res, 202, { ok: true, jobId: job.id, status: job.status });
+      return;
+    }
+
+    if (req.method === "GET" && req.url.startsWith("/api/job/")) {
+      cleanupJobs();
+      const id = decodeURIComponent(req.url.replace("/api/job/", "").split("?")[0]);
+      const job = jobs.get(id);
+      if (!job) {
+        sendJson(res, 404, { ok: false, message: "Анализ не найден. Запустите его еще раз." });
+        return;
+      }
+      if (job.status === "running") {
+        sendJson(res, 200, { ok: true, jobId: job.id, status: job.status });
+        return;
+      }
+      if (job.status === "failed") {
+        sendJson(res, 409, job.data || { ok: false, status: job.status, message: job.error || "Не удалось провести анализ." });
+        return;
+      }
+      sendJson(res, 200, job.data);
       return;
     }
 
