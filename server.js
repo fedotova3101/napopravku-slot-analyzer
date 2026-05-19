@@ -102,6 +102,22 @@ function normalizeNapopravkuUrl(value) {
   }
 }
 
+async function wait(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+async function fetchJson(url, timeoutMs = 3000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { signal: controller.signal });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return await response.json();
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function minimizeWorkerBrowserWindows() {
   if (process.platform !== "darwin") return;
   const script = `
@@ -160,12 +176,29 @@ async function navigateAndAnalyze(pageUrl) {
     setTimeout(minimizeWorkerBrowserWindows, 800);
     await page.waitForTimeout(7000);
 
-    return await page.evaluate(browserAnalyzer);
+    return await evaluateWithNavigationRetry(page, browserAnalyzer);
   } finally {
     clearInterval(minimizeTimer);
     minimizeWorkerBrowserWindows();
     await browser.close().catch(() => {});
   }
+}
+
+async function evaluateWithNavigationRetry(page, analyzer) {
+  let lastError;
+  for (let attempt = 1; attempt <= 4; attempt += 1) {
+    try {
+      return await page.evaluate(analyzer);
+    } catch (error) {
+      lastError = error;
+      const message = error.message || "";
+      const canRetry = /Execution context was destroyed|navigation|Target page/i.test(message);
+      if (!canRetry || attempt === 4) throw error;
+      await page.waitForLoadState("domcontentloaded", { timeout: 20_000 }).catch(() => {});
+      await page.waitForTimeout(2500);
+    }
+  }
+  throw lastError;
 }
 
 async function browserAnalyzer() {
