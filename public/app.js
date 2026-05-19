@@ -24,6 +24,28 @@ function showNotice(message = "") {
   notice.textContent = message;
 }
 
+async function readJsonResponse(response) {
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new Error("Сервер вернул не тот формат ответа. Запустите анализ еще раз.");
+  }
+}
+
+async function waitForJob(jobId) {
+  const started = Date.now();
+  while (Date.now() - started < 12 * 60 * 1000) {
+    await new Promise(resolve => setTimeout(resolve, 3000));
+    const response = await fetch(`/api/job/${encodeURIComponent(jobId)}`);
+    const data = await readJsonResponse(response);
+    if (data.status === "running") continue;
+    if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось провести анализ.");
+    return data;
+  }
+  throw new Error("Анализ идет слишком долго. Попробуйте запустить его еще раз.");
+}
+
 function doctorCard(row, dayKey) {
   const count = row[dayKey].count;
   const times = row[dayKey].times.join(", ");
@@ -117,8 +139,9 @@ form.addEventListener("submit", async event => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ url: input.value.trim() })
     });
-    const data = await response.json();
-    if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось провести анализ.");
+    const started = await readJsonResponse(response);
+    if (!response.ok || !started.ok) throw new Error(started.message || "Не удалось провести анализ.");
+    const data = started.jobId ? await waitForJob(started.jobId) : started;
     render(data);
     const gap = data.totalDoctors && data.loadedDoctors < data.totalDoctors ? ` Загружено ${data.loadedDoctors} из ${data.totalDoctors}; возможно, сайт ограничил подгрузку.` : "";
     showNotice(`Готово. Нажатий «Показать ещё»: ${data.loadMoreClicks}.${gap}`);
