@@ -29,7 +29,7 @@ async function readJsonResponse(response) {
   try {
     return JSON.parse(text);
   } catch {
-    throw new Error("Сервер вернул не тот формат ответа. Запустите анализ еще раз.");
+    throw new Error("Сервер анализа перезапустился во время работы. Чаще всего это значит, что бесплатному Render не хватило памяти для этой страницы.");
   }
 }
 
