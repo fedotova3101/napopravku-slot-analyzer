@@ -41,6 +41,11 @@ Key project files:
 - `/Users/go_ksen/Documents/Напоправку анализ врачей со свободными слотами/lib/analyzer-timings.js`
   - Defines bounded waits for page loading, doctor loading, `Показать ещё`, and slot switching.
 
+Load-more behavior:
+
+- The analyzer scrolls and clicks `Показать ещё` while new doctor cards are still appearing.
+- When the page text exposes a total doctor count and the loaded card count reaches that total, the analyzer stops loading more cards and starts slot analysis. This prevents wasting minutes clicking or waiting after the full list is already loaded.
+
 - `/Users/go_ksen/Documents/Напоправку анализ врачей со свободными слотами/lib/url-normalizer.js`
   - Accepts clinic, `/vrachi/`, and specialty `/doctors/.../` Napopravku links.
   - Rejects non-Napopravku and unsafe URLs before a job is created.
