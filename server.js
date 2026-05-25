@@ -103,7 +103,7 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
       detail: "Переходим по ссылке НаПоправку."
     });
     context = await browser.newContext({
-      viewport: { width: 1200, height: 900 },
+      viewport: { width: 1000, height: 800 },
       userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
       locale: "ru-RU",
       timezoneId: "Europe/Moscow"
@@ -113,6 +113,14 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
     }, { once: true });
     await context.addInitScript(() => {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+    });
+    await context.route("**/*", route => {
+      const blockedTypes = new Set(["image", "media", "font", "stylesheet"]);
+      if (blockedTypes.has(route.request().resourceType())) {
+        route.abort().catch(() => {});
+        return;
+      }
+      route.continue().catch(() => {});
     });
     const page = await context.newPage();
     await page.exposeFunction("reportAnalyzerProgress", patch => {
