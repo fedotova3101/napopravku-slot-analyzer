@@ -13,6 +13,7 @@ const HOST = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const ROOT = process.cwd();
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
+let sharedBrowserPromise = null;
 
 const MAX_PARALLEL_ANALYSES = Math.max(1, Number(process.env.MAX_PARALLEL_ANALYSES || 5));
 const ANALYSIS_TIMEOUT_MS = Math.max(60_000, Number(process.env.ANALYSIS_TIMEOUT_MS || 15 * 60 * 1000));
@@ -67,6 +68,23 @@ end tell
   spawn("osascript", ["-e", script], { detached: true, stdio: "ignore" }).unref();
 }
 
+async function getSharedBrowser(headless) {
+  if (!sharedBrowserPromise) {
+    sharedBrowserPromise = chromium.launch(getChromiumLaunchOptions({ headless }))
+      .then(browser => {
+        browser.on("disconnected", () => {
+          sharedBrowserPromise = null;
+        });
+        return browser;
+      })
+      .catch(error => {
+        sharedBrowserPromise = null;
+        throw error;
+      });
+  }
+  return sharedBrowserPromise;
+}
+
 async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
   updateProgress({
     percent: 4,
@@ -74,10 +92,8 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
     detail: "Готовим фоновый браузер для анализа."
   });
   const headless = process.env.PLAYWRIGHT_HEADLESS === "true" || process.env.RENDER === "true" || process.platform === "linux";
-  const browser = await chromium.launch(getChromiumLaunchOptions({ headless }));
-  signal?.addEventListener("abort", () => {
-    browser.close().catch(() => {});
-  }, { once: true });
+  const browser = await getSharedBrowser(headless);
+  let context = null;
   const minimizeTimer = setInterval(minimizeWorkerBrowserWindows, 900);
   try {
     minimizeWorkerBrowserWindows();
@@ -86,12 +102,15 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
       stage: "Открываем страницу",
       detail: "Переходим по ссылке НаПоправку."
     });
-    const context = await browser.newContext({
+    context = await browser.newContext({
       viewport: { width: 1200, height: 900 },
       userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
       locale: "ru-RU",
       timezoneId: "Europe/Moscow"
     });
+    signal?.addEventListener("abort", () => {
+      context?.close().catch(() => {});
+    }, { once: true });
     await context.addInitScript(() => {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
     });
@@ -113,7 +132,7 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
   } finally {
     clearInterval(minimizeTimer);
     minimizeWorkerBrowserWindows();
-    await browser.close().catch(() => {});
+    await context?.close().catch(() => {});
   }
 }
 
