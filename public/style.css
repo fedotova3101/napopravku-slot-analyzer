@@ -91,7 +91,8 @@ h1 {
 .search-panel,
 .summary,
 .result-block,
-.notice {
+.notice,
+.progress-panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: 8px;
@@ -169,6 +170,61 @@ button.secondary:hover {
   line-height: 1.45;
 }
 
+.progress-panel {
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: flex-start;
+}
+
+.progress-head strong {
+  display: block;
+  font-size: 17px;
+}
+
+.progress-head p {
+  margin-top: 5px;
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+#progressPercent {
+  flex: 0 0 auto;
+  min-width: 56px;
+  color: var(--accent-strong);
+  font-weight: 800;
+  text-align: right;
+}
+
+.progress-track {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: #e5eaf0;
+}
+
+.progress-bar {
+  width: 0%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 220ms ease;
+}
+
+.progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+  color: var(--muted);
+  font-size: 13px;
+}
+
 .summary {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
@@ -212,6 +268,13 @@ button.secondary:hover {
   gap: 12px;
   padding: 16px;
   border-bottom: 1px solid var(--line);
+}
+
+.header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 h2 {
@@ -269,6 +332,26 @@ table {
   min-width: 760px;
 }
 
+.proposal-block textarea {
+  display: block;
+  width: calc(100% - 28px);
+  min-height: 260px;
+  margin: 14px;
+  padding: 14px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: inherit;
+  line-height: 1.5;
+  color: var(--ink);
+  background: #fff;
+}
+
+.proposal-block textarea:focus {
+  outline: 3px solid #cbe5e0;
+  border-color: var(--accent);
+}
+
 th,
 td {
   padding: 12px 14px;
@@ -295,6 +378,16 @@ th {
   .results-grid {
     grid-template-columns: 1fr;
     display: grid;
+  }
+
+  .progress-head,
+  .result-block header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  #progressPercent {
+    text-align: left;
   }
 
   .summary {
