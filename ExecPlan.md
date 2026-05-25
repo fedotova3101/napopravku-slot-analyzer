@@ -23,6 +23,7 @@ Key project files:
   - Serves static files from `public/`.
   - Exposes `POST /api/analyze` and `GET /api/job/:id`.
   - Launches Playwright Chromium.
+  - Reuses one shared Chromium process and creates a separate browser context per analysis job to reduce memory pressure on Render.
   - Delegates in-memory jobs, progress, and parallel analysis limits to `lib/job-manager.js`.
 
 - `/Users/go_ksen/Documents/Напоправку анализ врачей со свободными слотами/lib/job-manager.js`
