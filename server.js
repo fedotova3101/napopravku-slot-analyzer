@@ -3,13 +3,24 @@ import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import { ANALYZER_TIMINGS } from "./lib/analyzer-timings.js";
+import { getChromiumLaunchOptions } from "./lib/browser-options.js";
+import { JobManager } from "./lib/job-manager.js";
+import { normalizeNapopravkuUrl } from "./lib/url-normalizer.js";
 
 const PORT = Number(process.env.PORT || 4355);
 const HOST = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
 const ROOT = process.cwd();
 const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
-const jobs = new Map();
+
+const MAX_PARALLEL_ANALYSES = Math.max(1, Number(process.env.MAX_PARALLEL_ANALYSES || 5));
+const ANALYSIS_TIMEOUT_MS = Math.max(60_000, Number(process.env.ANALYSIS_TIMEOUT_MS || 15 * 60 * 1000));
+const jobManager = new JobManager({
+  maxParallel: MAX_PARALLEL_ANALYSES,
+  analysisTimeoutMs: ANALYSIS_TIMEOUT_MS,
+  analyze: navigateAndAnalyze
+});
 
 const MIME = {
   ".html": "text/html; charset=utf-8",
@@ -27,35 +38,6 @@ function sendJson(res, status, data) {
   res.end(body);
 }
 
-function createJob(url) {
-  const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  const job = {
-    id,
-    status: "running",
-    createdAt: Date.now(),
-    data: null,
-    error: null
-  };
-  jobs.set(id, job);
-  navigateAndAnalyze(url)
-    .then(data => {
-      job.status = data.ok ? "done" : "failed";
-      job.data = data;
-    })
-    .catch(error => {
-      job.status = "failed";
-      job.error = error.message || "Не удалось провести анализ.";
-    });
-  return job;
-}
-
-function cleanupJobs() {
-  const cutoff = Date.now() - 60 * 60 * 1000;
-  for (const [id, job] of jobs) {
-    if (job.createdAt < cutoff) jobs.delete(id);
-  }
-}
-
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let body = "";
@@ -69,53 +51,6 @@ function readBody(req) {
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
-}
-
-function normalizeNapopravkuUrl(value) {
-  try {
-    const url = new URL(value);
-    if (!url.hostname.endsWith("napopravku.ru")) return null;
-
-    if (/\/doctors\/[^/]+\/?$/.test(url.pathname) || /\/doctors\/?$/.test(url.pathname)) {
-      return url.toString();
-    }
-
-    if (/\/vrachi\/?$/.test(url.pathname)) {
-      url.hash = "doctors";
-      return url.toString();
-    }
-
-    if (/\/clinics\/[^/]+\/?$/.test(url.pathname)) {
-      url.pathname = url.pathname.replace(/\/?$/, "/vrachi/");
-      url.hash = "doctors";
-      return url.toString();
-    }
-
-    if (url.hash === "#doctors" && /\/clinics\/[^/]+\/?$/.test(url.pathname)) {
-      url.pathname = url.pathname.replace(/\/?$/, "/vrachi/");
-      return url.toString();
-    }
-
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-async function wait(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-async function fetchJson(url, timeoutMs = 3000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { signal: controller.signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.json();
-  } finally {
-    clearTimeout(timer);
-  }
 }
 
 function minimizeWorkerBrowserWindows() {
@@ -132,35 +67,25 @@ end tell
   spawn("osascript", ["-e", script], { detached: true, stdio: "ignore" }).unref();
 }
 
-async function navigateAndAnalyze(pageUrl) {
-  const headless = process.env.PLAYWRIGHT_HEADLESS === "true" || process.env.RENDER === "true" || process.platform === "linux";
-  const browser = await chromium.launch({
-    headless,
-    args: [
-      "--no-sandbox",
-      "--disable-setuid-sandbox",
-      "--disable-dev-shm-usage",
-      "--disable-gpu",
-      "--disable-software-rasterizer",
-      "--disable-extensions",
-      "--disable-default-apps",
-      "--disable-sync",
-      "--disable-component-update",
-      "--disable-background-networking",
-      "--disable-features=site-per-process,Translate,BackForwardCache",
-      "--single-process",
-      "--no-zygote",
-      "--start-minimized",
-      "--window-position=-32000,-32000",
-      "--window-size=1200,900",
-      "--disable-blink-features=AutomationControlled",
-      "--disable-background-timer-throttling",
-      "--disable-renderer-backgrounding"
-    ]
+async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
+  updateProgress({
+    percent: 4,
+    stage: "Запускаем браузер",
+    detail: "Готовим фоновый браузер для анализа."
   });
+  const headless = process.env.PLAYWRIGHT_HEADLESS === "true" || process.env.RENDER === "true" || process.platform === "linux";
+  const browser = await chromium.launch(getChromiumLaunchOptions({ headless }));
+  signal?.addEventListener("abort", () => {
+    browser.close().catch(() => {});
+  }, { once: true });
   const minimizeTimer = setInterval(minimizeWorkerBrowserWindows, 900);
   try {
     minimizeWorkerBrowserWindows();
+    updateProgress({
+      percent: 8,
+      stage: "Открываем страницу",
+      detail: "Переходим по ссылке НаПоправку."
+    });
     const context = await browser.newContext({
       viewport: { width: 1200, height: 900 },
       userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
@@ -171,12 +96,20 @@ async function navigateAndAnalyze(pageUrl) {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
     });
     const page = await context.newPage();
-    page.setDefaultTimeout(120_000);
-    await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: 120_000 });
+    await page.exposeFunction("reportAnalyzerProgress", patch => {
+      updateProgress(patch);
+    });
+    page.setDefaultTimeout(ANALYZER_TIMINGS.pageDefaultTimeoutMs);
+    await page.goto(pageUrl, { waitUntil: "domcontentloaded", timeout: ANALYZER_TIMINGS.pageGotoTimeoutMs });
     setTimeout(minimizeWorkerBrowserWindows, 800);
-    await page.waitForTimeout(7000);
+    updateProgress({
+      percent: 14,
+      stage: "Ждем данные",
+      detail: "Страница открыта, ждем карточки врачей."
+    });
+    await page.waitForTimeout(ANALYZER_TIMINGS.initialPageSettleMs);
 
-    return await evaluateWithNavigationRetry(page, browserAnalyzer);
+    return await evaluateWithNavigationRetry(page, browserAnalyzer, job, updateProgress);
   } finally {
     clearInterval(minimizeTimer);
     minimizeWorkerBrowserWindows();
@@ -184,26 +117,40 @@ async function navigateAndAnalyze(pageUrl) {
   }
 }
 
-async function evaluateWithNavigationRetry(page, analyzer) {
+async function evaluateWithNavigationRetry(page, analyzer, job, updateProgress) {
   let lastError;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      return await page.evaluate(analyzer);
+      return await page.evaluate(analyzer, ANALYZER_TIMINGS);
     } catch (error) {
       lastError = error;
       const message = error.message || "";
       const canRetry = /Execution context was destroyed|navigation|Target page/i.test(message);
       if (!canRetry || attempt === 4) throw error;
+      updateProgress({
+        percent: Math.max(18, job.progress.percent - 2),
+        stage: "Повторяем анализ",
+        detail: "Страница обновилась во время анализа, пробуем продолжить."
+      });
       await page.waitForLoadState("domcontentloaded", { timeout: 20_000 }).catch(() => {});
-      await page.waitForTimeout(2500);
+      await page.waitForTimeout(ANALYZER_TIMINGS.navigationRetryWaitMs);
     }
   }
   throw lastError;
 }
 
-async function browserAnalyzer() {
+async function browserAnalyzer(timings) {
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
   const clean = text => String(text || "").replace(/\s+/g, " ").trim();
+  const report = async patch => {
+    try {
+      if (typeof window.reportAnalyzerProgress === "function") {
+        await window.reportAnalyzerProgress(patch);
+      }
+    } catch {
+      // Progress is helpful, but the analysis must continue if a report is missed.
+    }
+  };
   const visible = el => {
     if (!el) return false;
     const style = getComputedStyle(el);
@@ -218,16 +165,36 @@ async function browserAnalyzer() {
   const today = dateLabel(0);
   const tomorrow = dateLabel(1);
 
+  const getTotalDoctorsFromText = fallback => {
+    const text = document.body.innerText || "";
+    const match = text.match(/Врачи[^\n]*?\s(\d+)\s+специалист/);
+    return match ? Number(match[1]) : fallback;
+  };
+
   async function waitForDoctors() {
     const started = Date.now();
-    while (Date.now() - started < 90_000) {
+    while (Date.now() - started < timings.doctorListMaxWaitMs) {
       const cards = document.querySelectorAll(".doctor-card-v2").length;
       const text = document.body.innerText || "";
-      if (cards > 0) return { ok: true, cards };
+      if (cards > 0) {
+        await report({
+          percent: 22,
+          stage: "Список врачей найден",
+          detail: `Нашли первые карточки врачей: ${cards}.`,
+          loadedDoctors: cards,
+          totalDoctors: getTotalDoctorsFromText(cards)
+        });
+        return { ok: true, cards };
+      }
       if (/captcha|капч|провер/i.test(text)) {
         window.scrollTo(0, 0);
       }
-      await sleep(1000);
+      await report({
+        percent: 16,
+        stage: "Ждем список врачей",
+        detail: "НаПоправку еще загружает карточки врачей."
+      });
+      await sleep(timings.doctorListPollMs);
     }
     return { ok: false, cards: 0 };
   }
@@ -253,23 +220,31 @@ async function browserAnalyzer() {
 
   let clicks = 0;
   let quietPasses = 0;
-  while (clicks < 80 && quietPasses < 4) {
+  while (clicks < 80 && quietPasses < timings.quietPassesToStop) {
     window.scrollTo(0, document.body.scrollHeight);
-    await sleep(900);
+    await sleep(timings.loadMoreScrollWaitMs);
     const before = document.querySelectorAll(".doctor-card-v2").length;
+    const total = getTotalDoctorsFromText(before);
+    await report({
+      percent: Math.min(48, 24 + Math.round((Math.min(before, total || before) / Math.max(total || before || 1, 1)) * 22)),
+      stage: "Подгружаем врачей",
+      detail: `Загружено карточек: ${before}${total ? ` из ${total}` : ""}.`,
+      loadedDoctors: before,
+      totalDoctors: total
+    });
     const button = findLoadMore();
     if (!button) {
       quietPasses += 1;
-      await sleep(700);
+      await sleep(timings.loadMoreIdleWaitMs);
       continue;
     }
     button.scrollIntoView({ block: "center" });
-    await sleep(250);
+    await sleep(timings.loadMoreButtonSettleMs);
     button.click();
     clicks += 1;
     const started = Date.now();
-    while (Date.now() - started < 20_000) {
-      await sleep(500);
+    while (Date.now() - started < timings.loadMoreMaxWaitMs) {
+      await sleep(timings.loadMorePollMs);
       const after = document.querySelectorAll(".doctor-card-v2").length;
       if (after > before) {
         quietPasses = 0;
@@ -279,11 +254,15 @@ async function browserAnalyzer() {
   }
 
   const cards = Array.from(document.querySelectorAll(".doctor-card-v2"));
-  const getTotalDoctors = () => {
-    const text = document.body.innerText || "";
-    const match = text.match(/Врачи[^\n]*?\s(\d+)\s+специалист/);
-    return match ? Number(match[1]) : cards.length;
-  };
+  const totalDoctors = getTotalDoctorsFromText(cards.length);
+  await report({
+    percent: 50,
+    stage: "Анализируем слоты",
+    detail: `Проверяем расписание врачей: 0 из ${cards.length}.`,
+    loadedDoctors: cards.length,
+    totalDoctors,
+    analyzedDoctors: 0
+  });
 
   async function countSlotsForDate(card, targetDate) {
     const dateButtons = Array.from(card.querySelectorAll(".slider-calendar__day-button"));
@@ -291,9 +270,9 @@ async function browserAnalyzer() {
     if (!button || button.disabled) return { count: 0, times: [], available: false };
 
     button.scrollIntoView({ block: "center", inline: "center" });
-    await sleep(120);
+    await sleep(timings.dateButtonSettleMs);
     button.click();
-    await sleep(650);
+    await sleep(timings.slotSwitchWaitMs);
 
     const times = Array.from(card.querySelectorAll(".n-time-slot, .time-slots-list__time-slot"))
       .filter(visible)
@@ -303,32 +282,58 @@ async function browserAnalyzer() {
   }
 
   const rows = [];
-  for (const card of cards) {
-    const name = clean(
-      card.querySelector(".object-info__title-link")?.innerText ||
-      card.querySelector(".object-info__name")?.innerText
-    );
-    if (!name) continue;
+  for (const [index, card] of cards.entries()) {
+    try {
+      const name = clean(
+        card.querySelector(".object-info__title-link")?.innerText ||
+        card.querySelector(".object-info__name")?.innerText
+      );
+      if (!name) continue;
 
-    const clinic = clean(card.querySelector(".workplace-address-card__name")?.innerText);
-    const address = clean(card.querySelector(".workplace-address-card__address")?.innerText);
-    const specialties = Array.from(card.querySelectorAll(".speciality-list__chip"))
-      .map(el => clean(el.innerText))
-      .filter(Boolean)
-      .join(", ");
+      const clinic = clean(card.querySelector(".workplace-address-card__name")?.innerText);
+      const address = clean(card.querySelector(".workplace-address-card__address")?.innerText);
+      const specialties = Array.from(card.querySelectorAll(".speciality-list__chip"))
+        .map(el => clean(el.innerText))
+        .filter(Boolean)
+        .join(", ");
 
-    const todaySlots = await countSlotsForDate(card, today);
-    const tomorrowSlots = await countSlotsForDate(card, tomorrow);
+      const todaySlots = await countSlotsForDate(card, today);
+      const tomorrowSlots = await countSlotsForDate(card, tomorrow);
 
-    rows.push({
-      name,
-      clinic,
-      address,
-      specialties,
-      today: todaySlots,
-      tomorrow: tomorrowSlots
-    });
+      rows.push({
+        name,
+        clinic,
+        address,
+        specialties,
+        today: todaySlots,
+        tomorrow: tomorrowSlots
+      });
+    } catch {
+      // One broken card should not break the whole clinic analysis.
+    } finally {
+      await report({
+        percent: Math.min(96, 52 + Math.round(((index + 1) / Math.max(cards.length, 1)) * 43)),
+        stage: "Анализируем слоты",
+        detail: `Проверяем расписание врачей: ${index + 1} из ${cards.length}.`,
+        loadedDoctors: cards.length,
+        totalDoctors,
+        analyzedDoctors: index + 1
+      });
+    }
   }
+
+  await report({
+    percent: 98,
+    stage: "Готовим результат",
+    detail: "Собираем списки врачей, Excel и коммерческое предложение.",
+    loadedDoctors: rows.length,
+    totalDoctors,
+    analyzedDoctors: cards.length
+  });
+
+  const todayMoreThan3 = rows.filter(row => row.today.count > 3);
+  const tomorrowMoreThan3 = rows.filter(row => row.tomorrow.count > 3);
+  const targetRows = rows.filter(row => row.today.count > 3 || row.tomorrow.count > 3);
 
   return {
     ok: true,
@@ -337,10 +342,11 @@ async function browserAnalyzer() {
     today,
     tomorrow,
     loadedDoctors: rows.length,
-    totalDoctors: getTotalDoctors(),
+    totalDoctors,
     loadMoreClicks: clicks,
-    todayMoreThan3: rows.filter(row => row.today.count > 3),
-    tomorrowMoreThan3: rows.filter(row => row.tomorrow.count > 3),
+    todayMoreThan3,
+    tomorrowMoreThan3,
+    targetRows,
     allDoctors: rows
   };
 }
@@ -368,32 +374,38 @@ async function serveStatic(req, res) {
 const server = http.createServer(async (req, res) => {
   try {
     if (req.method === "POST" && req.url === "/api/analyze") {
-      cleanupJobs();
+      jobManager.cleanupJobs();
       const payload = JSON.parse(await readBody(req) || "{}");
       const url = normalizeNapopravkuUrl(String(payload.url || "").trim());
       if (!url) {
         sendJson(res, 400, { ok: false, message: "Вставьте ссылку на страницу клиники, врачей или специальности на napopravku.ru." });
         return;
       }
-      const job = createJob(url);
-      sendJson(res, 202, { ok: true, jobId: job.id, status: job.status });
+      const job = jobManager.createJob(url);
+      sendJson(res, 202, jobManager.publicJob(job));
       return;
     }
 
     if (req.method === "GET" && req.url.startsWith("/api/job/")) {
-      cleanupJobs();
+      jobManager.cleanupJobs();
       const id = decodeURIComponent(req.url.replace("/api/job/", "").split("?")[0]);
-      const job = jobs.get(id);
+      const job = jobManager.getJob(id);
       if (!job) {
         sendJson(res, 404, { ok: false, message: "Анализ не найден. Запустите его еще раз." });
         return;
       }
-      if (job.status === "running") {
-        sendJson(res, 200, { ok: true, jobId: job.id, status: job.status });
+      if (job.status === "queued" || job.status === "running") {
+        sendJson(res, 200, jobManager.publicJob(job));
         return;
       }
       if (job.status === "failed") {
-        sendJson(res, 409, job.data || { ok: false, status: job.status, message: job.error || "Не удалось провести анализ." });
+        sendJson(res, 409, job.data || {
+          ok: false,
+          jobId: job.id,
+          status: job.status,
+          progress: job.progress,
+          message: job.error || "Не удалось провести анализ."
+        });
         return;
       }
       sendJson(res, 200, job.data);
