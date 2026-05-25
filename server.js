@@ -115,7 +115,7 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
     });
     await context.route("**/*", route => {
-      const blockedTypes = new Set(["image", "media", "font", "stylesheet"]);
+      const blockedTypes = new Set(["image", "media", "font"]);
       if (blockedTypes.has(route.request().resourceType())) {
         route.abort().catch(() => {});
         return;
