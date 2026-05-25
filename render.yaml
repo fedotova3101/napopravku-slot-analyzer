@@ -2,10 +2,14 @@ services:
   - type: web
     name: napopravku-slot-analyzer
     runtime: docker
-    plan: free
+    plan: standard
     healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
       - key: PLAYWRIGHT_HEADLESS
         value: "true"
+      - key: MAX_PARALLEL_ANALYSES
+        value: "5"
+      - key: ANALYSIS_TIMEOUT_MS
+        value: "900000"
