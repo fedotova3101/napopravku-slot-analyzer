@@ -259,6 +259,11 @@ async function browserAnalyzer(timings) {
       loadedDoctors: before,
       totalDoctors: total
     });
+    if (total && before >= total) {
+      quietPasses += 1;
+      await sleep(timings.loadMoreIdleWaitMs);
+      continue;
+    }
     const button = findLoadMore();
     if (!button) {
       quietPasses += 1;
