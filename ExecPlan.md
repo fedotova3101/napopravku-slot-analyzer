@@ -24,6 +24,7 @@ Key project files:
   - Exposes `POST /api/analyze` and `GET /api/job/:id`.
   - Launches Playwright Chromium.
   - Reuses one shared Chromium process and creates a separate browser context per analysis job to reduce memory pressure on Render.
+  - Blocks images, media, fonts, and stylesheets in Playwright contexts because slot analysis only needs DOM text.
   - Delegates in-memory jobs, progress, and parallel analysis limits to `lib/job-manager.js`.
 
 - `/Users/go_ksen/Documents/Напоправку анализ врачей со свободными слотами/lib/job-manager.js`
