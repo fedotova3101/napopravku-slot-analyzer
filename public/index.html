@@ -28,6 +28,24 @@
 
         <div class="notice" id="notice" hidden></div>
 
+        <section class="progress-panel" id="progressPanel" hidden>
+          <div class="progress-head">
+            <div>
+              <strong id="progressStage">Готовим анализ</strong>
+              <p id="progressDetail">Пожалуйста, подождите.</p>
+            </div>
+            <span id="progressPercent">0%</span>
+          </div>
+          <div class="progress-track" aria-hidden="true">
+            <div class="progress-bar" id="progressBar"></div>
+          </div>
+          <div class="progress-meta">
+            <span id="progressLoaded">Врачей найдено: 0</span>
+            <span id="progressAnalyzed">Проверено: 0</span>
+            <span id="progressQueue" hidden>Анализ в очереди</span>
+          </div>
+        </section>
+
         <section class="summary" id="summary" hidden>
           <div>
             <span class="summary-label">Загружено врачей</span>
@@ -67,7 +85,10 @@
         <section class="result-block all-block" id="allBlock" hidden>
           <header>
             <h2>Все найденные врачи со слотами</h2>
-            <button class="secondary" type="button" data-copy="all">Скопировать все</button>
+            <div class="header-actions">
+              <button class="secondary" type="button" data-download-excel>Скачать Excel</button>
+              <button class="secondary" type="button" data-copy="all">Скопировать все</button>
+            </div>
           </header>
           <div class="table-wrap">
             <table>
@@ -82,6 +103,14 @@
               <tbody id="allRows"></tbody>
             </table>
           </div>
+        </section>
+
+        <section class="result-block proposal-block" id="proposalBlock" hidden>
+          <header>
+            <h2>Коммерческое предложение</h2>
+            <button class="secondary" type="button" data-copy-proposal>Скопировать КП</button>
+          </header>
+          <textarea id="proposalText" spellcheck="true"></textarea>
         </section>
       </section>
     </main>
