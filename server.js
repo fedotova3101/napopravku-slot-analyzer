@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 const { chromium } = require("playwright");
 let sharedBrowserPromise = null;
 
-const MAX_PARALLEL_ANALYSES = Math.max(1, Number(process.env.MAX_PARALLEL_ANALYSES || 5));
+const MAX_PARALLEL_ANALYSES = Math.max(1, Number(process.env.MAX_PARALLEL_ANALYSES || 3));
 const ANALYSIS_TIMEOUT_MS = Math.max(60_000, Number(process.env.ANALYSIS_TIMEOUT_MS || 15 * 60 * 1000));
 const jobManager = new JobManager({
   maxParallel: MAX_PARALLEL_ANALYSES,
