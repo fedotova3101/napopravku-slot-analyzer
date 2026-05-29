@@ -4,8 +4,11 @@ const button = document.querySelector("#analyzeButton");
 const statusPill = document.querySelector("#statusPill");
 const notice = document.querySelector("#notice");
 const summary = document.querySelector("#summary");
+const resultsToolbar = document.querySelector("#resultsToolbar");
 const results = document.querySelector("#results");
 const allBlock = document.querySelector("#allBlock");
+const allContent = document.querySelector("#allContent");
+const allToggle = document.querySelector("[data-toggle-all]");
 const progressPanel = document.querySelector("#progressPanel");
 const progressPercent = document.querySelector("#progressPercent");
 const progressBar = document.querySelector("#progressBar");
@@ -37,10 +40,12 @@ function setBusy(isBusy) {
 
 function resetOutput() {
   summary.hidden = true;
+  resultsToolbar.hidden = true;
   results.hidden = true;
   allBlock.hidden = true;
   proposalBlock.hidden = true;
   document.querySelector("#allRows").innerHTML = "";
+  toggleAllDoctors(false);
 }
 
 function showNotice(message = "") {
@@ -121,6 +126,13 @@ function renderAllRows(rows) {
   `).join("");
 }
 
+function toggleAllDoctors(isExpanded = !allContent.hidden) {
+  allContent.hidden = !isExpanded;
+  allToggle.setAttribute("aria-expanded", String(isExpanded));
+  allToggle.setAttribute("aria-label", isExpanded ? "Скрыть полный список" : "Показать полный список");
+  allToggle.querySelector(".chevron").textContent = isExpanded ? "⌃" : "⌄";
+}
+
 function render(data) {
   lastData.value = data;
   updateProgress({ ...(data.progress || {}), percent: 100 });
@@ -135,8 +147,10 @@ function render(data) {
   renderAllRows(data.allDoctors);
   proposalText.value = buildProposal(data);
   summary.hidden = false;
+  resultsToolbar.hidden = false;
   results.hidden = false;
   allBlock.hidden = false;
+  toggleAllDoctors(false);
   proposalBlock.hidden = false;
 }
 
@@ -151,6 +165,38 @@ function escapeHtml(value) {
 
 function rowsForExport(data) {
   return (data.targetRows?.length ? data.targetRows : data.allDoctors.filter(row => row.today.count > 3 || row.tomorrow.count > 3));
+}
+
+function rowsForExcelExport(data) {
+  const rows = rowsForExport(data);
+  return rows.flatMap(row => {
+    const clinic = [row.clinic, row.address].filter(Boolean).join(", ");
+    const base = {
+      name: row.name,
+      specialties: row.specialties,
+      clinic: row.clinic || clinic,
+      address: row.address,
+      fullClinic: clinic
+    };
+    const dayRows = [];
+    if (row.today.count > 3) {
+      dayRows.push({
+        ...base,
+        day: `Сегодня, ${data.today}`,
+        count: row.today.count,
+        times: row.today.times.join(", ")
+      });
+    }
+    if (row.tomorrow.count > 3) {
+      dayRows.push({
+        ...base,
+        day: `Завтра, ${data.tomorrow}`,
+        count: row.tomorrow.count,
+        times: row.tomorrow.times.join(", ")
+      });
+    }
+    return dayRows;
+  });
 }
 
 function rowsToText(rows, dayKey) {
@@ -178,17 +224,16 @@ ${doctorLines}`;
 }
 
 function downloadExcel(data) {
-  const rows = rowsForExport(data);
-  const header = ["Врач", "Специализация", "Филиал / клиника", "Адрес", "Окна на сегодня", "Окна на завтра", "Количество окон сегодня", "Количество окон завтра"];
+  const rows = rowsForExcelExport(data);
+  const header = ["Врач", "Специализация", "Филиал / клиника", "Адрес", "День", "Количество окон", "Время окон"];
   const bodyRows = rows.map(row => [
     row.name,
     row.specialties,
     row.clinic,
     row.address,
-    row.today.times.join(", "),
-    row.tomorrow.times.join(", "),
-    row.today.count,
-    row.tomorrow.count
+    row.day,
+    row.count,
+    row.times
   ]);
   const tableRows = [header, ...bodyRows].map(values => `<Row>${values.map(value => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`).join("")}</Row>`).join("");
   const workbook = `<?xml version="1.0"?>
@@ -221,6 +266,11 @@ function escapeXml(value) {
 }
 
 document.addEventListener("click", async event => {
+  if (event.target?.closest("[data-toggle-all]")) {
+    toggleAllDoctors(allContent.hidden);
+    return;
+  }
+
   const copyType = event.target?.dataset?.copy;
   if (copyType && lastData.value) {
     const data = lastData.value;
