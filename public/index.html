@@ -9,30 +9,41 @@
   <body>
     <main class="layout">
       <section class="workspace">
-        <div class="topline">
-          <div>
-            <h1>Анализ свободных слотов врачей</h1>
-            <p>Вставьте ссылку на страницу врачей, клиники или специальности. Инструмент в фоне подгрузит список и покажет врачей, у которых больше 3 слотов на сегодня или завтра.</p>
-            <div class="version-note">Версия: фоновый Playwright-анализ, порт 4355</div>
+        <div class="brandbar">
+          <div class="brandmark" aria-hidden="true">нп</div>
+          <div class="brandcopy">
+            <strong>НаПоправку</strong>
+            <span>внутренний инструмент</span>
           </div>
           <div class="status-pill" id="statusPill">Готово</div>
         </div>
 
+        <div class="topline">
+          <div class="intro">
+            <h1>Анализ свободных слотов врачей</h1>
+            <p>Вставьте ссылку на страницу клиники, врачей или специальности. Анализатор покажет специалистов, у которых больше 3 свободных окон на сегодня или завтра.</p>
+          </div>
+        </div>
+
         <form class="search-panel" id="analyzeForm">
-          <label for="urlInput">Ссылка на страницу НаПоправку</label>
+          <div class="field-head">
+            <span class="panel-icon" aria-hidden="true">↗</span>
+            <label for="urlInput">Ссылка на страницу НаПоправку</label>
+          </div>
           <div class="input-row">
             <input id="urlInput" name="url" type="url" value="https://napopravku.ru/kirov/clinics/sovermed/vrachi/#doctors" placeholder="https://napopravku.ru/kirov/doctors/stomatolog-terapevt/" required>
             <button type="submit" id="analyzeButton">Анализировать</button>
           </div>
+          <p class="field-hint">Подойдут ссылки на клинику, раздел /vrachi/ и страницу специальности.</p>
         </form>
 
         <div class="notice" id="notice" hidden></div>
 
         <section class="progress-panel" id="progressPanel" hidden>
           <div class="progress-head">
-            <div>
-              <strong id="progressStage">Готовим анализ</strong>
-              <p id="progressDetail">Пожалуйста, подождите.</p>
+            <div class="progress-title">
+              <span class="panel-icon" aria-hidden="true">✓</span>
+              <strong>Идет анализ</strong>
             </div>
             <span id="progressPercent">0%</span>
           </div>
@@ -65,52 +76,68 @@
           </div>
         </section>
 
-        <section class="results-grid" id="results" hidden>
-          <article class="result-block">
+        <section class="report-layout">
+          <section class="result-block proposal-block" id="proposalBlock" hidden>
             <header>
-              <h2 id="todayTitle">Сегодня</h2>
-              <button class="secondary" type="button" data-copy="today">Скопировать список</button>
+              <div>
+                <span class="section-kicker">Готовый текст</span>
+                <h2>Коммерческое предложение</h2>
+              </div>
+              <button class="secondary" type="button" data-copy-proposal>Скопировать КП</button>
             </header>
-            <div class="doctor-list" id="todayList"></div>
-          </article>
-          <article class="result-block">
-            <header>
-              <h2 id="tomorrowTitle">Завтра</h2>
-              <button class="secondary" type="button" data-copy="tomorrow">Скопировать список</button>
-            </header>
-            <div class="doctor-list" id="tomorrowList"></div>
-          </article>
-        </section>
+            <textarea id="proposalText" spellcheck="true"></textarea>
+          </section>
 
-        <section class="result-block all-block" id="allBlock" hidden>
-          <header>
-            <h2>Все найденные врачи со слотами</h2>
-            <div class="header-actions">
-              <button class="secondary" type="button" data-download-excel>Скачать Excel</button>
-              <button class="secondary" type="button" data-copy="all">Скопировать все</button>
-            </div>
-          </header>
-          <div class="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>Врач</th>
-                  <th>Сегодня</th>
-                  <th>Завтра</th>
-                  <th>Клиника</th>
-                </tr>
-              </thead>
-              <tbody id="allRows"></tbody>
-            </table>
+          <div class="doctor-results">
+            <section class="results-grid" id="results" hidden>
+              <article class="result-block">
+                <header>
+                  <div>
+                    <span class="section-kicker">Больше 3 окон</span>
+                    <h2 id="todayTitle">Сегодня</h2>
+                  </div>
+                  <button class="secondary" type="button" data-copy="today">Скопировать список</button>
+                </header>
+                <div class="doctor-list" id="todayList"></div>
+              </article>
+              <article class="result-block">
+                <header>
+                  <div>
+                    <span class="section-kicker">Больше 3 окон</span>
+                    <h2 id="tomorrowTitle">Завтра</h2>
+                  </div>
+                  <button class="secondary" type="button" data-copy="tomorrow">Скопировать список</button>
+                </header>
+                <div class="doctor-list" id="tomorrowList"></div>
+              </article>
+            </section>
+
+            <section class="result-block all-block" id="allBlock" hidden>
+              <header>
+                <div>
+                  <span class="section-kicker">Экспорт</span>
+                  <h2>Все найденные врачи со слотами</h2>
+                </div>
+                <div class="header-actions">
+                  <button class="secondary accent-action" type="button" data-download-excel>Скачать Excel</button>
+                  <button class="secondary" type="button" data-copy="all">Скопировать все</button>
+                </div>
+              </header>
+              <div class="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Врач</th>
+                      <th>Сегодня</th>
+                      <th>Завтра</th>
+                      <th>Клиника</th>
+                    </tr>
+                  </thead>
+                  <tbody id="allRows"></tbody>
+                </table>
+              </div>
+            </section>
           </div>
-        </section>
-
-        <section class="result-block proposal-block" id="proposalBlock" hidden>
-          <header>
-            <h2>Коммерческое предложение</h2>
-            <button class="secondary" type="button" data-copy-proposal>Скопировать КП</button>
-          </header>
-          <textarea id="proposalText" spellcheck="true"></textarea>
         </section>
       </section>
     </main>
