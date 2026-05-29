@@ -7,6 +7,7 @@ import { ANALYZER_TIMINGS } from "./lib/analyzer-timings.js";
 import { getChromiumLaunchOptions } from "./lib/browser-options.js";
 import { JobManager } from "./lib/job-manager.js";
 import { normalizeNapopravkuUrl } from "./lib/url-normalizer.js";
+import { XLSX_CONTENT_TYPE, buildXlsxBuffer } from "./lib/xlsx-export.js";
 
 const PORT = Number(process.env.PORT || 4355);
 const HOST = process.env.HOST || (process.env.RENDER ? "0.0.0.0" : "127.0.0.1");
@@ -53,6 +54,17 @@ function readBody(req) {
     req.on("end", () => resolve(body));
     req.on("error", reject);
   });
+}
+
+function sendXlsx(res, rows) {
+  const body = buildXlsxBuffer(rows);
+  const fileName = `napopravku-slots-${new Date().toISOString().slice(0, 10)}.xlsx`;
+  res.writeHead(200, {
+    "content-type": XLSX_CONTENT_TYPE,
+    "content-length": body.length,
+    "content-disposition": `attachment; filename="${fileName}"`
+  });
+  res.end(body);
 }
 
 function minimizeWorkerBrowserWindows() {
@@ -416,6 +428,12 @@ const server = http.createServer(async (req, res) => {
       }
       const job = jobManager.createJob(url);
       sendJson(res, 202, jobManager.publicJob(job));
+      return;
+    }
+
+    if (req.method === "POST" && req.url === "/api/export-xlsx") {
+      const payload = JSON.parse(await readBody(req) || "{}");
+      sendXlsx(res, Array.isArray(payload.rows) ? payload.rows : []);
       return;
     }
 
