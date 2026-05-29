@@ -74,3 +74,15 @@ test("Excel export is one manager-friendly table split by day rows", async () =>
   assert.doesNotMatch(appJs, /"Окна на сегодня"/);
   assert.doesNotMatch(appJs, /"Окна на завтра"/);
 });
+
+test("proposal uses updated default text and lists only doctors with specialties", async () => {
+  const appJs = await readPublicFile("app.js");
+
+  assert.match(appJs, /const proposalTemplate = `Добрый день!/);
+  assert.doesNotMatch(appJs, /Это позволит быстрее закрывать свободные окна/);
+  assert.match(appJs, /По результатам анализа свободные окна больше 3 слотов найдены у следующих специалистов:/);
+  assert.doesNotMatch(appJs, /const today = row\.today\.count/);
+  assert.doesNotMatch(appJs, /const tomorrow = row\.tomorrow\.count/);
+  assert.doesNotMatch(appJs, /const slots = \[today, tomorrow\]/);
+  assert.match(appJs, /`- \$\{row\.name\}\$\{row\.specialties \? `, \$\{row\.specialties\}` : ""\}\.`/);
+});
