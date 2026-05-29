@@ -6,6 +6,10 @@ async function readPublicFile(name) {
   return readFile(new URL(`../public/${name}`, import.meta.url), "utf8");
 }
 
+async function readLibFile(name) {
+  return readFile(new URL(`../lib/${name}`, import.meta.url), "utf8");
+}
+
 test("public UI keeps proposal before doctor results", async () => {
   const html = await readPublicFile("index.html");
 
@@ -66,11 +70,16 @@ test("all found doctors section is collapsed by default", async () => {
 
 test("Excel export is one manager-friendly table split by day rows", async () => {
   const appJs = await readPublicFile("app.js");
+  const xlsxExportJs = await readLibFile("xlsx-export.js");
 
   assert.match(appJs, /rowsForExcelExport/);
-  assert.match(appJs, /"День"/);
-  assert.match(appJs, /"Количество окон"/);
-  assert.match(appJs, /"Время окон"/);
+  assert.match(appJs, /fetch\("\/api\/export-xlsx"/);
+  assert.match(appJs, /napopravku-slots-\$\{new Date\(\)\.toISOString\(\)\.slice\(0, 10\)\}\.xlsx/);
+  assert.match(xlsxExportJs, /"День"/);
+  assert.match(xlsxExportJs, /"Количество окон"/);
+  assert.match(xlsxExportJs, /"Время окон"/);
+  assert.doesNotMatch(appJs, /application\/vnd\.ms-excel/);
+  assert.doesNotMatch(appJs, /\.xls`/);
   assert.doesNotMatch(appJs, /"Окна на сегодня"/);
   assert.doesNotMatch(appJs, /"Окна на завтра"/);
 });
