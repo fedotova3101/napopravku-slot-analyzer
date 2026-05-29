@@ -217,46 +217,24 @@ function buildProposal(data) {
 ${doctorLines}`;
 }
 
-function downloadExcel(data) {
+async function downloadExcel(data) {
   const rows = rowsForExcelExport(data);
-  const header = ["Врач", "Специализация", "Филиал / клиника", "Адрес", "День", "Количество окон", "Время окон"];
-  const bodyRows = rows.map(row => [
-    row.name,
-    row.specialties,
-    row.clinic,
-    row.address,
-    row.day,
-    row.count,
-    row.times
-  ]);
-  const tableRows = [header, ...bodyRows].map(values => `<Row>${values.map(value => `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`).join("")}</Row>`).join("");
-  const workbook = `<?xml version="1.0"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
- xmlns:o="urn:schemas-microsoft-com:office:office"
- xmlns:x="urn:schemas-microsoft-com:office:excel"
- xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-  <Worksheet ss:Name="Свободные окна">
-    <Table>${tableRows}</Table>
-  </Worksheet>
-</Workbook>`;
-  const blob = new Blob([workbook], { type: "application/vnd.ms-excel;charset=utf-8" });
+  const response = await fetch("/api/export-xlsx", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ rows })
+  });
+  if (!response.ok) {
+    throw new Error("Не удалось подготовить Excel-файл. Попробуйте скачать еще раз.");
+  }
+  const blob = await response.blob();
   const link = document.createElement("a");
   link.href = URL.createObjectURL(blob);
-  link.download = `napopravku-slots-${new Date().toISOString().slice(0, 10)}.xls`;
+  link.download = `napopravku-slots-${new Date().toISOString().slice(0, 10)}.xlsx`;
   document.body.append(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(link.href);
-}
-
-function escapeXml(value) {
-  return String(value ?? "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;");
 }
 
 document.addEventListener("click", async event => {
@@ -281,7 +259,7 @@ document.addEventListener("click", async event => {
   }
 
   if (event.target?.hasAttribute("data-download-excel") && lastData.value) {
-    downloadExcel(lastData.value);
+    await downloadExcel(lastData.value);
   }
 
   if (event.target?.hasAttribute("data-copy-proposal")) {
