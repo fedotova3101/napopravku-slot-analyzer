@@ -10,11 +10,7 @@
     <main class="layout">
       <section class="workspace">
         <div class="brandbar">
-          <div class="brandmark" aria-hidden="true">нп</div>
-          <div class="brandcopy">
-            <strong>НаПоправку</strong>
-            <span>внутренний инструмент</span>
-          </div>
+          <img class="brand-logo" src="/napopravku-logo.svg" alt="НаПоправку">
           <div class="status-pill" id="statusPill">Готово</div>
         </div>
 
@@ -89,6 +85,14 @@
           </section>
 
           <div class="doctor-results">
+            <section class="results-toolbar" id="resultsToolbar" hidden>
+              <div>
+                <span class="section-kicker">Свободные окна</span>
+                <h2>Сегодня и завтра</h2>
+              </div>
+              <button class="secondary accent-action" type="button" data-download-excel>Скачать Excel</button>
+            </section>
+
             <section class="results-grid" id="results" hidden>
               <article class="result-block">
                 <header>
@@ -113,17 +117,19 @@
             </section>
 
             <section class="result-block all-block" id="allBlock" hidden>
-              <header>
+              <header class="collapse-head">
                 <div>
-                  <span class="section-kicker">Экспорт</span>
+                  <span class="section-kicker">Полный список</span>
                   <h2>Все найденные врачи со слотами</h2>
                 </div>
                 <div class="header-actions">
-                  <button class="secondary accent-action" type="button" data-download-excel>Скачать Excel</button>
                   <button class="secondary" type="button" data-copy="all">Скопировать все</button>
+                  <button class="icon-button" type="button" data-toggle-all aria-expanded="false" aria-controls="allContent" aria-label="Показать полный список">
+                    <span class="chevron" aria-hidden="true">⌄</span>
+                  </button>
                 </div>
               </header>
-              <div class="table-wrap">
+              <div class="table-wrap" id="allContent" hidden>
                 <table>
                   <thead>
                     <tr>
