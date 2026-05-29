@@ -7,8 +7,6 @@ const summary = document.querySelector("#summary");
 const results = document.querySelector("#results");
 const allBlock = document.querySelector("#allBlock");
 const progressPanel = document.querySelector("#progressPanel");
-const progressStage = document.querySelector("#progressStage");
-const progressDetail = document.querySelector("#progressDetail");
 const progressPercent = document.querySelector("#progressPercent");
 const progressBar = document.querySelector("#progressBar");
 const progressLoaded = document.querySelector("#progressLoaded");
@@ -54,8 +52,6 @@ function updateProgress(progress = {}) {
   const percent = Math.max(0, Math.min(100, Math.round(Number(progress.percent || 0))));
   const queuePosition = Number(progress.queuePosition || 0);
   progressPanel.hidden = false;
-  progressStage.textContent = progress.stage || "Идет анализ";
-  progressDetail.textContent = progress.detail || "Пожалуйста, подождите.";
   progressPercent.textContent = `${percent}%`;
   progressBar.style.width = `${percent}%`;
   const loaded = Number(progress.loadedDoctors || 0);
@@ -127,7 +123,7 @@ function renderAllRows(rows) {
 
 function render(data) {
   lastData.value = data;
-  updateProgress({ ...(data.progress || {}), percent: 100, stage: "Готово", detail: "Анализ завершен." });
+  updateProgress({ ...(data.progress || {}), percent: 100 });
   document.querySelector("#loadedDoctors").textContent = data.loadedDoctors;
   document.querySelector("#totalDoctors").textContent = data.totalDoctors;
   document.querySelector("#todayCount").textContent = data.todayMoreThan3.length;
@@ -257,7 +253,7 @@ form.addEventListener("submit", async event => {
   event.preventDefault();
   showNotice("");
   resetOutput();
-  updateProgress({ percent: 0, stage: "Запускаем анализ", detail: "Отправляем ссылку на сервер.", loadedDoctors: 0, analyzedDoctors: 0 });
+  updateProgress({ percent: 0, loadedDoctors: 0, analyzedDoctors: 0 });
   setBusy(true);
   try {
     const response = await fetch("/api/analyze", {
