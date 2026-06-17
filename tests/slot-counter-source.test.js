@@ -7,6 +7,9 @@ test("server slot counter has a text fallback when rendered time buttons are not
 
   assert.match(serverJs, /function extractTimesFromText/);
   assert.match(serverJs, /function collectSlotTimes/);
+  assert.match(serverJs, /function firstDateFromCardText/);
+  assert.match(serverJs, /function inferSlotsFromCardText/);
+  assert.match(serverJs, /if \(!button \|\| disabled\(button\)\) return textFallback\(\);/);
   assert.doesNotMatch(
     serverJs,
     /querySelectorAll\("\.n-time-slot,\s*\.time-slots-list__time-slot"\)\)\s*\.filter\(visible\)/,
