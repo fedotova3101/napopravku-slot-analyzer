@@ -229,6 +229,19 @@ async function browserAnalyzer(timings) {
     if (timesFromButtons.length > 0) return unique(timesFromButtons);
     return extractTimesFromText(card.innerText || card.textContent);
   }
+  function firstDateFromCardText(card) {
+    const text = clean(card.innerText || card.textContent);
+    const match = text.match(/(?:пн|вт|ср|чт|пт|сб|вс)\s*\u200b?\s*(\d{1,2}\.\d{2})/i);
+    return match ? match[1].padStart(5, "0") : null;
+  }
+  function inferSlotsFromCardText(card, targetDate) {
+    const text = clean(card.innerText || card.textContent);
+    if (!text.includes(targetDate)) return null;
+    const firstDate = firstDateFromCardText(card);
+    if (firstDate && firstDate !== targetDate) return null;
+    const times = collectSlotTimes(card);
+    return times.length > 0 ? { count: times.length, times, available: true } : null;
+  }
   const dateButtonMatches = (el, targetDate) => clean(el.innerText || el.textContent).includes(targetDate);
   const selectedDateButton = el => /\bselected\b/i.test(String(el.className || "")) || el.getAttribute("aria-selected") === "true";
   const dateLabel = offset => {
@@ -349,7 +362,8 @@ async function browserAnalyzer(timings) {
       dateButtons.find(el => dateButtonMatches(el, targetDate) && visible(el)) ||
       dateButtons.find(el => dateButtonMatches(el, targetDate))
     );
-    if (!button || disabled(button)) return { count: 0, times: [], available: false };
+    const textFallback = () => inferSlotsFromCardText(card, targetDate) || { count: 0, times: [], available: false };
+    if (!button || disabled(button)) return textFallback();
 
     if (!selectedDateButton(button)) {
       button.scrollIntoView({ block: "center", inline: "center" });
@@ -360,11 +374,11 @@ async function browserAnalyzer(timings) {
 
     const selectedButton = dateButtons.find(el => dateButtonMatches(el, targetDate) && selectedDateButton(el));
     if (!selectedButton && dateButtons.some(selectedDateButton)) {
-      return { count: 0, times: [], available: false };
+      return textFallback();
     }
 
     const times = collectSlotTimes(card);
-    return { count: times.length, times, available: true };
+    return times.length > 0 ? { count: times.length, times, available: true } : textFallback();
   }
 
   const rows = [];
