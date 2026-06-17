@@ -197,6 +197,40 @@ async function browserAnalyzer(timings) {
     const rect = el.getBoundingClientRect();
     return style.visibility !== "hidden" && style.display !== "none" && rect.width > 0 && rect.height > 0;
   };
+  const rendered = el => {
+    if (!el) return false;
+    const style = getComputedStyle(el);
+    return style.visibility !== "hidden" && style.display !== "none";
+  };
+  const disabled = el => (
+    !el ||
+    el.disabled ||
+    el.getAttribute("aria-disabled") === "true" ||
+    /\bdisabled\b/i.test(String(el.className || ""))
+  );
+  const unique = items => Array.from(new Set(items));
+  function extractTimesFromText(text) {
+    return unique(
+      (String(text || "").match(/\b(?:[01]?\d|2[0-3]):[0-5]\d\b/g) || [])
+        .map(time => time.padStart(5, "0"))
+    );
+  }
+  function collectSlotTimes(card) {
+    const slotSelectors = [
+      ".n-time-slot",
+      ".time-slots-list__time-slot",
+      "button[class*='time-slot']",
+      "[class*='time-slots-list'] button"
+    ].join(", ");
+    const timesFromButtons = Array.from(card.querySelectorAll(slotSelectors))
+      .filter(el => rendered(el) && !disabled(el))
+      .flatMap(el => extractTimesFromText(el.innerText || el.textContent));
+
+    if (timesFromButtons.length > 0) return unique(timesFromButtons);
+    return extractTimesFromText(card.innerText || card.textContent);
+  }
+  const dateButtonMatches = (el, targetDate) => clean(el.innerText || el.textContent).includes(targetDate);
+  const selectedDateButton = el => /\bselected\b/i.test(String(el.className || "")) || el.getAttribute("aria-selected") === "true";
   const dateLabel = offset => {
     const date = new Date();
     date.setDate(date.getDate() + offset);
@@ -311,19 +345,26 @@ async function browserAnalyzer(timings) {
 
   async function countSlotsForDate(card, targetDate) {
     const dateButtons = Array.from(card.querySelectorAll(".slider-calendar__day-button"));
-    const button = dateButtons.find(el => clean(el.innerText).includes(targetDate));
-    if (!button || button.disabled) return { count: 0, times: [], available: false };
+    const button = (
+      dateButtons.find(el => dateButtonMatches(el, targetDate) && visible(el)) ||
+      dateButtons.find(el => dateButtonMatches(el, targetDate))
+    );
+    if (!button || disabled(button)) return { count: 0, times: [], available: false };
 
-    button.scrollIntoView({ block: "center", inline: "center" });
-    await sleep(timings.dateButtonSettleMs);
-    button.click();
-    await sleep(timings.slotSwitchWaitMs);
+    if (!selectedDateButton(button)) {
+      button.scrollIntoView({ block: "center", inline: "center" });
+      await sleep(timings.dateButtonSettleMs);
+      button.click();
+      await sleep(timings.slotSwitchWaitMs);
+    }
 
-    const times = Array.from(card.querySelectorAll(".n-time-slot, .time-slots-list__time-slot"))
-      .filter(visible)
-      .map(el => clean(el.innerText || el.textContent))
-      .filter(text => /^\d{1,2}:\d{2}$/.test(text));
-    return { count: new Set(times).size, times: Array.from(new Set(times)), available: true };
+    const selectedButton = dateButtons.find(el => dateButtonMatches(el, targetDate) && selectedDateButton(el));
+    if (!selectedButton && dateButtons.some(selectedDateButton)) {
+      return { count: 0, times: [], available: false };
+    }
+
+    const times = collectSlotTimes(card);
+    return { count: times.length, times, available: true };
   }
 
   const rows = [];
