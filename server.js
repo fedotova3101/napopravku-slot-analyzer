@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import { ANALYZER_TIMINGS } from "./lib/analyzer-timings.js";
 import { getChromiumLaunchOptions } from "./lib/browser-options.js";
+import { dateLabelForOffset, resolveNapopravkuTimezone } from "./lib/city-timezones.js";
 import { JobManager } from "./lib/job-manager.js";
 import { normalizeNapopravkuUrl } from "./lib/url-normalizer.js";
 import { XLSX_CONTENT_TYPE, buildXlsxBuffer } from "./lib/xlsx-export.js";
@@ -105,6 +106,12 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
     detail: "Готовим фоновый браузер для анализа."
   });
   const headless = process.env.PLAYWRIGHT_HEADLESS === "true" || process.env.RENDER === "true" || process.platform === "linux";
+  const clinicTimeZone = resolveNapopravkuTimezone(pageUrl);
+  const targetDates = {
+    today: dateLabelForOffset(clinicTimeZone, 0),
+    tomorrow: dateLabelForOffset(clinicTimeZone, 1),
+    clinicTimeZone
+  };
   const browser = await getSharedBrowser(headless);
   let context = null;
   const minimizeTimer = setInterval(minimizeWorkerBrowserWindows, 900);
@@ -119,7 +126,7 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
       viewport: { width: 1000, height: 800 },
       userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/147.0.0.0 Safari/537.36",
       locale: "ru-RU",
-      timezoneId: "Europe/Moscow"
+      timezoneId: clinicTimeZone
     });
     signal?.addEventListener("abort", () => {
       context?.close().catch(() => {});
@@ -149,7 +156,10 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
     });
     await page.waitForTimeout(ANALYZER_TIMINGS.initialPageSettleMs);
 
-    return await evaluateWithNavigationRetry(page, browserAnalyzer, job, updateProgress);
+    return await evaluateWithNavigationRetry(page, browserAnalyzer, job, updateProgress, {
+      timings: ANALYZER_TIMINGS,
+      targetDates
+    });
   } finally {
     clearInterval(minimizeTimer);
     minimizeWorkerBrowserWindows();
@@ -157,11 +167,11 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
   }
 }
 
-async function evaluateWithNavigationRetry(page, analyzer, job, updateProgress) {
+async function evaluateWithNavigationRetry(page, analyzer, job, updateProgress, payload) {
   let lastError;
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     try {
-      return await page.evaluate(analyzer, ANALYZER_TIMINGS);
+      return await page.evaluate(analyzer, payload);
     } catch (error) {
       lastError = error;
       const message = error.message || "";
@@ -179,9 +189,9 @@ async function evaluateWithNavigationRetry(page, analyzer, job, updateProgress) 
   throw lastError;
 }
 
-async function browserAnalyzer(timings) {
+async function browserAnalyzer({ timings, targetDates }) {
   const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-  const clean = text => String(text || "").replace(/\s+/g, " ").trim();
+  const clean = text => String(text || "").replace(/[\u200b\u200c\u200d\ufeff]/g, " ").replace(/\s+/g, " ").trim();
   const report = async patch => {
     try {
       if (typeof window.reportAnalyzerProgress === "function") {
@@ -244,13 +254,9 @@ async function browserAnalyzer(timings) {
   }
   const dateButtonMatches = (el, targetDate) => clean(el.innerText || el.textContent).includes(targetDate);
   const selectedDateButton = el => /\bselected\b/i.test(String(el.className || "")) || el.getAttribute("aria-selected") === "true";
-  const dateLabel = offset => {
-    const date = new Date();
-    date.setDate(date.getDate() + offset);
-    return `${String(date.getDate()).padStart(2, "0")}.${String(date.getMonth() + 1).padStart(2, "0")}`;
-  };
-  const today = dateLabel(0);
-  const tomorrow = dateLabel(1);
+  const today = targetDates.today;
+  const tomorrow = targetDates.tomorrow;
+  const clinicTimeZone = targetDates.clinicTimeZone;
 
   const getTotalDoctorsFromText = fallback => {
     const text = document.body.innerText || "";
@@ -356,29 +362,68 @@ async function browserAnalyzer(timings) {
     analyzedDoctors: 0
   });
 
+  async function waitForSlotRender(card, targetDate) {
+    const started = Date.now();
+    while (Date.now() - started < Math.max(1_000, timings.slotSwitchWaitMs * 4)) {
+      const selectedText = Array.from(card.querySelectorAll(".slider-calendar__day-button"))
+        .filter(selectedDateButton)
+        .map(el => clean(el.innerText || el.textContent))
+        .join(" ");
+      const times = collectSlotTimes(card);
+      if (times.length > 0 && (!targetDate || selectedText.includes(targetDate))) return times;
+      await sleep(120);
+    }
+    return collectSlotTimes(card);
+  }
+
   async function countSlotsForDate(card, targetDate) {
+    const slotDebug = {
+      targetDate,
+      reason: "",
+      dateButtons: [],
+      selectedDates: [],
+      visibleTimesBefore: [],
+      visibleTimesAfter: []
+    };
+    card.scrollIntoView({ block: "center", inline: "nearest" });
+    await sleep(timings.dateButtonSettleMs);
+    slotDebug.visibleTimesBefore = await waitForSlotRender(card);
+
     const dateButtons = Array.from(card.querySelectorAll(".slider-calendar__day-button"));
+    slotDebug.dateButtons = dateButtons.map(el => clean(el.innerText || el.textContent)).filter(Boolean);
+    slotDebug.selectedDates = dateButtons.filter(selectedDateButton).map(el => clean(el.innerText || el.textContent)).filter(Boolean);
     const button = (
       dateButtons.find(el => dateButtonMatches(el, targetDate) && visible(el)) ||
       dateButtons.find(el => dateButtonMatches(el, targetDate))
     );
-    const textFallback = () => inferSlotsFromCardText(card, targetDate) || { count: 0, times: [], available: false };
-    if (!button || disabled(button)) return textFallback();
+    const textFallback = reason => {
+      const fallback = inferSlotsFromCardText(card, targetDate);
+      if (fallback) {
+        return { ...fallback, slotDebug: { ...slotDebug, reason: `${reason}:text-fallback` } };
+      }
+      return { count: 0, times: [], available: false, slotDebug: { ...slotDebug, reason } };
+    };
+    if (!button) return textFallback("target-date-not-found");
+    if (disabled(button)) return textFallback("target-date-disabled");
 
     if (!selectedDateButton(button)) {
       button.scrollIntoView({ block: "center", inline: "center" });
       await sleep(timings.dateButtonSettleMs);
       button.click();
-      await sleep(timings.slotSwitchWaitMs);
+      await waitForSlotRender(card, targetDate);
     }
 
     const selectedButton = dateButtons.find(el => dateButtonMatches(el, targetDate) && selectedDateButton(el));
+    slotDebug.selectedDates = dateButtons.filter(selectedDateButton).map(el => clean(el.innerText || el.textContent)).filter(Boolean);
     if (!selectedButton && dateButtons.some(selectedDateButton)) {
-      return textFallback();
+      return textFallback("target-date-not-selected");
     }
 
-    const times = collectSlotTimes(card);
-    return times.length > 0 ? { count: times.length, times, available: true } : textFallback();
+    const times = await waitForSlotRender(card, targetDate);
+    slotDebug.visibleTimesAfter = times;
+    return times.length > 0
+      ? { count: times.length, times, available: true, slotDebug: { ...slotDebug, reason: "slot-times-found" } }
+      : textFallback("slot-times-not-found");
   }
 
   const rows = [];
@@ -441,6 +486,7 @@ async function browserAnalyzer(timings) {
     title: document.title,
     today,
     tomorrow,
+    clinicTimeZone,
     loadedDoctors: rows.length,
     totalDoctors,
     loadMoreClicks: clicks,
