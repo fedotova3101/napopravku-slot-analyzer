@@ -7,6 +7,7 @@ import { ANALYZER_TIMINGS } from "./lib/analyzer-timings.js";
 import { getChromiumLaunchOptions } from "./lib/browser-options.js";
 import { dateLabelForOffset, resolveNapopravkuTimezone } from "./lib/city-timezones.js";
 import { JobManager } from "./lib/job-manager.js";
+import { parseSlotDateText, slotDatesEqual, summarizeSlotDiagnostics } from "./lib/slot-date.js";
 import { normalizeNapopravkuUrl } from "./lib/url-normalizer.js";
 import { XLSX_CONTENT_TYPE, buildXlsxBuffer } from "./lib/xlsx-export.js";
 
@@ -134,6 +135,9 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
     await context.addInitScript(() => {
       Object.defineProperty(navigator, "webdriver", { get: () => undefined });
     });
+    await context.addInitScript({
+      content: `window.parseSlotDateText = ${parseSlotDateText.toString()};\nwindow.slotDatesEqual = ${slotDatesEqual.toString()};`
+    });
     await context.route("**/*", route => {
       const blockedTypes = new Set(["image", "media", "font"]);
       if (blockedTypes.has(route.request().resourceType())) {
@@ -156,10 +160,20 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
     });
     await page.waitForTimeout(ANALYZER_TIMINGS.initialPageSettleMs);
 
-    return await evaluateWithNavigationRetry(page, browserAnalyzer, job, updateProgress, {
+    const result = await evaluateWithNavigationRetry(page, browserAnalyzer, job, updateProgress, {
       timings: ANALYZER_TIMINGS,
       targetDates
     });
+    const analysisDiagnostics = summarizeSlotDiagnostics(result.allDoctors);
+    if (result.ok && analysisDiagnostics.scheduleFormatMismatch) {
+      return {
+        ...result,
+        ok: false,
+        analysisDiagnostics,
+        message: "НаПоправку отдал расписание, но анализатор не смог надежно распознать даты. Ложный нулевой результат не показан; нужно обновить разбор расписания."
+      };
+    }
+    return { ...result, analysisDiagnostics };
   } finally {
     clearInterval(minimizeTimer);
     minimizeWorkerBrowserWindows();
@@ -241,18 +255,16 @@ async function browserAnalyzer({ timings, targetDates }) {
   }
   function firstDateFromCardText(card) {
     const text = clean(card.innerText || card.textContent);
-    const match = text.match(/(?:пн|вт|ср|чт|пт|сб|вс)\s*\u200b?\s*(\d{1,2}\.\d{2})/i);
-    return match ? match[1].padStart(5, "0") : null;
+    const match = text.match(/(?:пн|вт|ср|чт|пт|сб|вс)\s*\u200b?\s*(\d{1,2}\.\d{1,2})/i);
+    return match ? match[1] : null;
   }
   function inferSlotsFromCardText(card, targetDate) {
-    const text = clean(card.innerText || card.textContent);
-    if (!text.includes(targetDate)) return null;
     const firstDate = firstDateFromCardText(card);
-    if (firstDate && firstDate !== targetDate) return null;
+    if (!firstDate || !window.slotDatesEqual(firstDate, targetDate)) return null;
     const times = collectSlotTimes(card);
     return times.length > 0 ? { count: times.length, times, available: true } : null;
   }
-  const dateButtonMatches = (el, targetDate) => clean(el.innerText || el.textContent).includes(targetDate);
+  const dateButtonMatches = (el, targetDate) => window.slotDatesEqual(clean(el.innerText || el.textContent), targetDate);
   const selectedDateButton = el => /\bselected\b/i.test(String(el.className || "")) || el.getAttribute("aria-selected") === "true";
   const today = targetDates.today;
   const tomorrow = targetDates.tomorrow;
@@ -370,7 +382,7 @@ async function browserAnalyzer({ timings, targetDates }) {
         .map(el => clean(el.innerText || el.textContent))
         .join(" ");
       const times = collectSlotTimes(card);
-      if (times.length > 0 && (!targetDate || selectedText.includes(targetDate))) return times;
+      if (times.length > 0 && (!targetDate || window.slotDatesEqual(selectedText, targetDate))) return times;
       await sleep(120);
     }
     return collectSlotTimes(card);
