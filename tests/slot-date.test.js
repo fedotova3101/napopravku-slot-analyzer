@@ -36,15 +36,31 @@ test("rejects impossible and missing dates", () => {
 
 test("detects a schedule format mismatch instead of accepting a false zero", () => {
   const rows = [{
-    today: { count: 0, slotDebug: { reason: "target-date-not-found", visibleTimesBefore: ["15:45"] } },
-    tomorrow: { count: 0, slotDebug: { reason: "target-date-not-found", visibleTimesBefore: ["13:00"] } }
+    today: { count: 0, slotDebug: { reason: "target-date-not-found", dateButtons: ["сегодня", "завтра"], visibleTimesBefore: ["15:45"] } },
+    tomorrow: { count: 0, slotDebug: { reason: "target-date-not-found", dateButtons: ["сегодня", "завтра"], visibleTimesBefore: ["13:00"] } }
   }];
 
   assert.deepEqual(summarizeSlotDiagnostics(rows), {
     reasonCounts: { "target-date-not-found": 2 },
     checks: 2,
     checksWithRenderedTimes: 2,
+    checksWithUnrecognizedDateButtons: 2,
     scheduleFormatMismatch: true
+  });
+});
+
+test("does not flag future recognized schedule dates as a format mismatch", () => {
+  const rows = [{
+    today: { count: 0, slotDebug: { reason: "target-date-not-found", targetDate: "21.08", dateButtons: ["ср 26.08", "пн 31.08"], visibleTimesBefore: ["09:00", "09:20"] } },
+    tomorrow: { count: 0, slotDebug: { reason: "target-date-not-found", targetDate: "22.08", dateButtons: ["ср 26.08", "пн 31.08"], visibleTimesBefore: ["09:00", "09:20"] } }
+  }];
+
+  assert.deepEqual(summarizeSlotDiagnostics(rows), {
+    reasonCounts: { "target-date-not-found": 2 },
+    checks: 2,
+    checksWithRenderedTimes: 2,
+    checksWithUnrecognizedDateButtons: 0,
+    scheduleFormatMismatch: false
   });
 });
 
