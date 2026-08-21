@@ -37,3 +37,13 @@ test("server scrolls each doctor card into view before reading slots", async () 
   assert.match(serverJs, /textFallback\("target-date-not-found"\)/);
   assert.match(serverJs, /slotDebug/);
 });
+
+test("server records request diagnostics for each analysis job", async () => {
+  const serverJs = await readFile(new URL("../server.js", import.meta.url), "utf8");
+
+  assert.match(serverJs, /createRequestDiagnostics/);
+  assert.match(serverJs, /requestDiagnostics\.recordRequest/);
+  assert.match(serverJs, /requestDiagnostics\.recordResponse/);
+  assert.match(serverJs, /requestDiagnostics\.snapshot\(\)/);
+  assert.match(serverJs, /requestDiagnostics/);
+});
