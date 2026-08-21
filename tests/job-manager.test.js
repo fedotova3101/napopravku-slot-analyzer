@@ -13,10 +13,10 @@ function deferred() {
   return { promise, resolve, reject };
 }
 
-test("starts only the configured number of jobs and queues the next one", async () => {
+test("starts three jobs and keeps fourth, fifth, and sixth jobs queued in order", async () => {
   const runs = [];
   const manager = new JobManager({
-    maxParallel: 5,
+    maxParallel: 3,
     analyze: (_url, job) => {
       const run = deferred();
       runs.push({ job, run });
@@ -26,15 +26,27 @@ test("starts only the configured number of jobs and queues the next one", async 
 
   const jobs = Array.from({ length: 6 }, (_, index) => manager.createJob(`https://napopravku.ru/${index}`));
 
-  assert.equal(runs.length, 5);
-  assert.deepEqual(jobs.slice(0, 5).map(job => manager.publicJob(job).status), ["running", "running", "running", "running", "running"]);
-  assert.equal(manager.publicJob(jobs[5]).status, "queued");
-  assert.equal(manager.publicJob(jobs[5]).progress.queuePosition, 1);
+  assert.equal(runs.length, 3);
+  assert.deepEqual(jobs.slice(0, 3).map(job => manager.publicJob(job).status), ["running", "running", "running"]);
+  assert.deepEqual(jobs.slice(3).map(job => manager.publicJob(job).status), ["queued", "queued", "queued"]);
+  assert.deepEqual(jobs.slice(3).map(job => manager.publicJob(job).progress.queuePosition), [1, 2, 3]);
 
-  runs.forEach(({ run }) => run.resolve({ ok: true }));
+  runs[0].run.resolve({ ok: true });
   await new Promise(resolve => setTimeout(resolve, 0));
-  runs[5]?.run.resolve({ ok: true });
-  await new Promise(resolve => setTimeout(resolve, 0));
+
+  assert.equal(manager.publicJob(jobs[3]).status, "running");
+  assert.equal(manager.publicJob(jobs[4]).status, "queued");
+  assert.equal(manager.publicJob(jobs[4]).progress.queuePosition, 1);
+  assert.equal(manager.publicJob(jobs[5]).status, "queued");
+  assert.equal(manager.publicJob(jobs[5]).progress.queuePosition, 2);
+
+  while (runs.some(({ job }) => manager.publicJob(job).status === "running")) {
+    const activeRuns = runs.filter(({ job }) => manager.publicJob(job).status === "running");
+    activeRuns.forEach(({ run }) => run.resolve({ ok: true }));
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  assert.deepEqual(jobs.map(job => manager.publicJob(job).status), ["done", "done", "done", "done", "done", "done"]);
 });
 
 test("starts the first queued job after an active job finishes", async () => {
@@ -117,4 +129,53 @@ test("marks a stuck job as failed and frees the next queued job", async () => {
   assert.equal(manager.publicJob(stuck).status, "failed");
   assert.equal(manager.publicJob(next).status, "done");
   assert.equal(runs.length, 2);
+});
+
+test("finalizes unreliable partial analysis at 100 percent instead of leaving it at 98", async () => {
+  const manager = new JobManager({
+    maxParallel: 1,
+    analyze: (_url, _job, updateProgress) => {
+      updateProgress({
+        percent: 98,
+        stage: "Готовим результат",
+        loadedDoctors: 56,
+        totalDoctors: 56,
+        analyzedDoctors: 56
+      });
+      return Promise.resolve({
+        ok: false,
+        status: "partial",
+        message: "Расписание есть, но даты не распознаны надежно."
+      });
+    }
+  });
+
+  const job = manager.createJob("https://napopravku.ru/partial");
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const publicJob = manager.publicJob(job);
+  assert.equal(publicJob.status, "partial");
+  assert.equal(publicJob.progress.percent, 100);
+  assert.equal(publicJob.progress.loadedDoctors, 56);
+  assert.equal(publicJob.progress.totalDoctors, 56);
+  assert.equal(publicJob.progress.analyzedDoctors, 56);
+  assert.equal(publicJob.progress.stage, "Анализ остановлен");
+});
+
+test("finalizes failed analysis at 100 percent so the UI cannot look stuck", async () => {
+  const manager = new JobManager({
+    maxParallel: 1,
+    analyze: (_url, _job, updateProgress) => {
+      updateProgress({ percent: 98, analyzedDoctors: 4, totalDoctors: 4 });
+      return Promise.resolve({ ok: false, message: "Не удалось надежно разобрать расписание." });
+    }
+  });
+
+  const job = manager.createJob("https://napopravku.ru/failed");
+  await new Promise(resolve => setTimeout(resolve, 0));
+
+  const publicJob = manager.publicJob(job);
+  assert.equal(publicJob.status, "failed");
+  assert.equal(publicJob.progress.percent, 100);
+  assert.equal(publicJob.progress.stage, "Анализ остановлен");
 });
