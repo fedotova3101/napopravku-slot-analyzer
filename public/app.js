@@ -10,6 +10,7 @@ const allBlock = document.querySelector("#allBlock");
 const allContent = document.querySelector("#allContent");
 const allToggle = document.querySelector("[data-toggle-all]");
 const progressPanel = document.querySelector("#progressPanel");
+const progressTitle = document.querySelector("#progressTitle");
 const progressPercent = document.querySelector("#progressPercent");
 const progressBar = document.querySelector("#progressBar");
 const progressLoaded = document.querySelector("#progressLoaded");
@@ -22,6 +23,7 @@ const lists = {
   tomorrow: document.querySelector("#tomorrowList")
 };
 const lastData = { value: null };
+const lastProgress = { value: {} };
 
 const proposalTemplate = `Добрый день!
 
@@ -43,6 +45,7 @@ function resetOutput() {
   allBlock.hidden = true;
   proposalBlock.hidden = true;
   document.querySelector("#allRows").innerHTML = "";
+  lastProgress.value = {};
   toggleAllDoctors(false);
 }
 
@@ -52,14 +55,26 @@ function showNotice(message = "") {
 }
 
 function updateProgress(progress = {}) {
-  const percent = Math.max(0, Math.min(100, Math.round(Number(progress.percent || 0))));
-  const queuePosition = Number(progress.queuePosition || 0);
+  lastProgress.value = { ...lastProgress.value, ...progress };
+  const current = lastProgress.value;
+  const percent = Math.max(0, Math.min(100, Math.round(Number(current.percent || 0))));
+  const queuePosition = Number(current.queuePosition || 0);
+  const stage = String(current.stage || "");
   progressPanel.hidden = false;
+  if (/готово/i.test(stage)) {
+    progressTitle.textContent = "Готово";
+  } else if (/ошибка|останов|не смог|ненадеж/i.test(stage)) {
+    progressTitle.textContent = "Анализ остановлен";
+  } else if (queuePosition) {
+    progressTitle.textContent = "Анализ в очереди";
+  } else {
+    progressTitle.textContent = "Идет анализ";
+  }
   progressPercent.textContent = `${percent}%`;
   progressBar.style.width = `${percent}%`;
-  const loaded = Number(progress.loadedDoctors || 0);
-  const total = Number(progress.totalDoctors || 0);
-  const analyzed = Number(progress.analyzedDoctors || 0);
+  const loaded = Number(current.loadedDoctors || 0);
+  const total = Number(current.totalDoctors || 0);
+  const analyzed = Number(current.analyzedDoctors || 0);
   progressLoaded.textContent = total ? `Врачей найдено: ${loaded} из ${total}` : `Врачей найдено: ${loaded}`;
   progressAnalyzed.textContent = `Проверено: ${analyzed}`;
   progressQueue.hidden = !queuePosition;
@@ -82,8 +97,17 @@ async function waitForJob(jobId) {
     const response = await fetch(`/api/job/${encodeURIComponent(jobId)}`);
     const data = await readJsonResponse(response);
     if (data.progress) updateProgress(data.progress);
-    statusPill.textContent = data.status === "queued" ? "Очередь" : "Анализ";
+    if (data.status === "queued") {
+      statusPill.textContent = "Очередь";
+    } else if (data.status === "running") {
+      statusPill.textContent = "Анализ";
+    } else {
+      statusPill.textContent = "Готово";
+    }
     if (data.status === "queued" || data.status === "running") continue;
+    if (data.status === "partial") {
+      updateProgress({ ...(data.progress || {}), percent: 100, stage: "Анализ остановлен" });
+    }
     if (!response.ok || !data.ok) throw new Error(data.message || "Не удалось провести анализ.");
     return data;
   }
@@ -291,6 +315,7 @@ form.addEventListener("submit", async event => {
     const gap = data.totalDoctors && data.loadedDoctors < data.totalDoctors ? ` Загружено ${data.loadedDoctors} из ${data.totalDoctors}; возможно, сайт ограничил подгрузку.` : "";
     showNotice(`Готово. Нажатий «Показать ещё»: ${data.loadMoreClicks}.${gap}`);
   } catch (error) {
+    updateProgress({ percent: 100, stage: "Анализ остановлен" });
     showNotice(error.message || "Не удалось провести анализ.");
   } finally {
     setBusy(false);
