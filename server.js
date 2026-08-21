@@ -83,6 +83,51 @@ end tell
   spawn("osascript", ["-e", script], { detached: true, stdio: "ignore" }).unref();
 }
 
+function createRequestDiagnostics(jobId, pageUrl) {
+  const stats = {
+    jobId,
+    url: pageUrl,
+    totalRequests: 0,
+    napopravkuRequests: 0,
+    blockedRequests: 0,
+    failedRequests: 0,
+    byResourceType: {},
+    byStatus: {},
+    startedAt: new Date().toISOString()
+  };
+
+  const isNapopravku = url => {
+    try {
+      return new URL(url).hostname.endsWith("napopravku.ru");
+    } catch {
+      return false;
+    }
+  };
+
+  return {
+    recordRequest(request, { blocked = false } = {}) {
+      const resourceType = request.resourceType();
+      stats.totalRequests += 1;
+      stats.byResourceType[resourceType] = (stats.byResourceType[resourceType] || 0) + 1;
+      if (isNapopravku(request.url())) stats.napopravkuRequests += 1;
+      if (blocked) stats.blockedRequests += 1;
+    },
+    recordResponse(response) {
+      const status = String(response.status());
+      stats.byStatus[status] = (stats.byStatus[status] || 0) + 1;
+    },
+    recordFailure() {
+      stats.failedRequests += 1;
+    },
+    snapshot() {
+      return {
+        ...stats,
+        finishedAt: new Date().toISOString()
+      };
+    }
+  };
+}
+
 async function getSharedBrowser(headless) {
   if (!sharedBrowserPromise) {
     sharedBrowserPromise = chromium.launch(getChromiumLaunchOptions({ headless }))
@@ -116,6 +161,7 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
   const browser = await getSharedBrowser(headless);
   let context = null;
   const minimizeTimer = setInterval(minimizeWorkerBrowserWindows, 900);
+  const requestDiagnostics = createRequestDiagnostics(job.id, pageUrl);
   try {
     minimizeWorkerBrowserWindows();
     updateProgress({
@@ -139,14 +185,19 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
       content: `window.parseSlotDateText = ${parseSlotDateText.toString()};\nwindow.slotDatesEqual = ${slotDatesEqual.toString()};`
     });
     await context.route("**/*", route => {
+      const request = route.request();
       const blockedTypes = new Set(["image", "media", "font"]);
-      if (blockedTypes.has(route.request().resourceType())) {
+      if (blockedTypes.has(request.resourceType())) {
+        requestDiagnostics.recordRequest(request, { blocked: true });
         route.abort().catch(() => {});
         return;
       }
+      requestDiagnostics.recordRequest(request);
       route.continue().catch(() => {});
     });
     const page = await context.newPage();
+    page.on("response", response => requestDiagnostics.recordResponse(response));
+    page.on("requestfailed", () => requestDiagnostics.recordFailure());
     await page.exposeFunction("reportAnalyzerProgress", patch => {
       updateProgress(patch);
     });
@@ -165,15 +216,30 @@ async function navigateAndAnalyze(pageUrl, job, updateProgress, signal) {
       targetDates
     });
     const analysisDiagnostics = summarizeSlotDiagnostics(result.allDoctors);
+    const diagnostics = {
+      ...analysisDiagnostics,
+      requestDiagnostics: requestDiagnostics.snapshot()
+    };
+    console.info(JSON.stringify({
+      event: "analysis_completed",
+      jobId: job.id,
+      url: pageUrl,
+      ok: result.ok,
+      loadedDoctors: result.loadedDoctors,
+      totalDoctors: result.totalDoctors,
+      analyzedDoctors: result.allDoctors?.length || 0,
+      diagnostics
+    }));
     if (result.ok && analysisDiagnostics.scheduleFormatMismatch) {
       return {
         ...result,
         ok: false,
-        analysisDiagnostics,
+        status: "partial",
+        analysisDiagnostics: diagnostics,
         message: "НаПоправку отдал расписание, но анализатор не смог надежно распознать даты. Ложный нулевой результат не показан; нужно обновить разбор расписания."
       };
     }
-    return { ...result, analysisDiagnostics };
+    return { ...result, analysisDiagnostics: diagnostics };
   } finally {
     clearInterval(minimizeTimer);
     minimizeWorkerBrowserWindows();
@@ -255,8 +321,9 @@ async function browserAnalyzer({ timings, targetDates }) {
   }
   function firstDateFromCardText(card) {
     const text = clean(card.innerText || card.textContent);
-    const match = text.match(/(?:пн|вт|ср|чт|пт|сб|вс)\s*\u200b?\s*(\d{1,2}\.\d{1,2})/i);
-    return match ? match[1] : null;
+    const weekdayDate = text.match(/(?:пн|вт|ср|чт|пт|сб|вс)\s*\u200b?\s*(\d{1,2}(?:\.\d{1,2}|\s+(?:января|февраля|марта|апреля|мая|июня|июля|августа|сентября|октября|ноября|декабря)))/i);
+    if (weekdayDate) return weekdayDate[1];
+    return window.parseSlotDateText(text) ? text : null;
   }
   function inferSlotsFromCardText(card, targetDate) {
     const firstDate = firstDateFromCardText(card);
