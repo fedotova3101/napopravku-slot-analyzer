@@ -30,10 +30,21 @@ test("progress panel shows only quiet metrics instead of technical stages", asyn
 
   assert.doesNotMatch(html, /progressStage|progressDetail/);
   assert.doesNotMatch(appJs, /progressStage|progressDetail/);
+  assert.match(html, /id="progressTitle"/);
+  assert.match(appJs, /progressTitle\.textContent/);
   assert.match(html, /id="progressPercent"/);
   assert.match(html, /id="progressLoaded"/);
   assert.match(html, /id="progressAnalyzed"/);
   assert.match(html, /id="progressQueue"/);
+});
+
+test("public UI treats final partial or failed jobs as finished instead of running forever", async () => {
+  const appJs = await readPublicFile("app.js");
+
+  assert.match(appJs, /data\.status === "partial"/);
+  assert.match(appJs, /Анализ остановлен/);
+  assert.match(appJs, /statusPill\.textContent = "Готово"/);
+  assert.doesNotMatch(appJs, /statusPill\.textContent = data\.status === "queued" \? "Очередь" : "Анализ";/);
 });
 
 test("public UI uses orange Napopravku branding without internal tool label", async () => {
