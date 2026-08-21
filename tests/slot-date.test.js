@@ -16,6 +16,12 @@ test("extracts a date from a NaPopravku calendar label", () => {
   assert.deepEqual(parseSlotDateText("пн 29.02"), { day: 29, month: 2 });
 });
 
+test("extracts Russian month date labels used by schedule calendars", () => {
+  assert.deepEqual(parseSlotDateText("чт 21 августа"), { day: 21, month: 8 });
+  assert.deepEqual(parseSlotDateText("Сегодня, 1 сентября"), { day: 1, month: 9 });
+  assert.equal(slotDatesEqual("пт 22 августа", "22.08"), true);
+});
+
 test("does not confuse different days or months", () => {
   assert.equal(slotDatesEqual("3.07", "4.07"), false);
   assert.equal(slotDatesEqual("3.07", "3.08"), false);
